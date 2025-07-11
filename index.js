@@ -3,10 +3,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
-const express = require('express');
 
-const app = express();
-const PORT = process.env.PORT || 10000;
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // Google Sheets Setup
@@ -73,8 +70,12 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Webhook placeholder for Render
-app.get('/', (req, res) => res.send('🤖 AI CEO is running!'));
-app.listen(PORT, () => console.log(`✅ Server is running on port ${PORT}`));
+// 🚀 Use webhook mode only (REQUIRED for Render)
+bot.launch({
+  webhook: {
+    domain: process.env.RENDER_EXTERNAL_HOSTNAME,
+    port: process.env.PORT || 10000
+  }
+});
 
-bot.launch();
+console.log(`✅ Bot is running via webhook at https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
