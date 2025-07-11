@@ -1,3 +1,5 @@
-node_modules
+node_modules/
 .env
-*.json
+n8n-assistant-465403-*.json
+npm-debug.log*
+.DS_Store
