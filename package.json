@@ -1,15 +1,16 @@
 {
   "name": "ai-ceo-assistant",
   "version": "1.0.0",
+  "description": "AI CEO bot for Telegram using OpenRouter and Google Sheets",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "axios": "^1.10.0",
-    "dotenv": "^17.2.0",
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "googleapis": "^152.0.0",
-    "telegraf": "^4.12.2"
+    "googleapis": "^153.0.0",
+    "telegraf": "^4.16.2"
   }
 }
