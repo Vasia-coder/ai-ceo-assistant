@@ -16,9 +16,11 @@ const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 // ChatGPT via OpenRouter
 async function askOpenRouter(message) {
   try {
+    await new Promise(resolve => setTimeout(resolve, 1500)); // ЗАДЕРЖКА 1.5 СЕК
+
     const response = await axios.post('https://openrouter.ai/api/v1/chat/completions',
       {
-        model: "deepseek-chat",
+        model: "openrouter/deepseek-chat",
         messages: [{ role: "user", content: message }]
       },
       {
