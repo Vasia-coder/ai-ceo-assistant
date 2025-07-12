@@ -20,7 +20,7 @@ async function askOpenRouter(message) {
 
     const response = await axios.post('https://openrouter.ai/api/v1/chat/completions',
       {
-        model: "openrouter/deepseek-chat",
+        model: "deepseek/deepseek-r1-0528-qwen3-8b:free",
         messages: [{ role: "user", content: message }]
       },
       {
