@@ -15,7 +15,7 @@ const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_JSON_PATH,
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
-const SHEET_ID = '1OJoOhXfwJ7UYDXSotnldppImgs5Kapcb2mjypnfcDOQ';
+const SHEET_ID = '1nMldr5S_8bZvJwZRPhGtavH6P7Tjj0IWyjDg-eAFF_U';
 
 // Speech to Text client
 const speechClient = new speech.SpeechClient({
