@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.example
 n8n-assistant-465403-*.json
 npm-debug.log*
 .DS_Store

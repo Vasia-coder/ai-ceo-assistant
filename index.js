@@ -1,10 +1,11 @@
 require('dotenv').config();
 const { google } = require('googleapis');
 const fs = require('fs');
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const axios = require('axios');
 const speech = require('@google-cloud/speech');
 const https = require('https');
+const cron = require('node-cron');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -23,7 +24,6 @@ const speechClient = new speech.SpeechClient({
 // ChatGPT via OpenRouter
 async function askOpenRouter(message) {
   try {
-    await new Promise(resolve => setTimeout(resolve, 1500));
     const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
       model: "deepseek/deepseek-r1-0528-qwen3-8b:free",
       messages: [{ role: "user", content: message }]
@@ -37,17 +37,18 @@ async function askOpenRouter(message) {
     if (response.data && response.data.choices && response.data.choices.length > 0) {
       return response.data.choices[0].message.content;
     } else {
-      return "🤖 Sorry, I didn't get a valid response from the AI.";
+      return "🤖 Извините, я не получил ответа от ИИ.";
     }
   } catch (error) {
     console.error("❌ OpenRouter API error:", error.message);
-    return "🤖 Sorry, I couldn't process that due to an API error.";
+    return "🤖 Ошибка при обращении к ИИ.";
   }
 }
 
-bot.start((ctx) => ctx.reply('🤖 AI CEO is online and ready to help you!'));
+// Start command
+bot.start((ctx) => ctx.reply('🤖 AI CEO активен и готов помочь!'));
 
-// Обработка голосовых сообщений
+// Voice messages
 bot.on('voice', async (ctx) => {
   const fileId = ctx.message.voice.file_id;
   const fileLink = await ctx.telegram.getFileLink(fileId);
@@ -73,7 +74,6 @@ bot.on('voice', async (ctx) => {
         const transcription = response.results.map(r => r.alternatives[0].transcript).join(' ');
         ctx.reply(`🗣️ Распознано: ${transcription}`);
 
-        // Добавление в таблицу
         const client = await auth.getClient();
         const sheets = google.sheets({ version: 'v4', auth: client });
         await sheets.spreadsheets.values.append({
@@ -82,10 +82,10 @@ bot.on('voice', async (ctx) => {
           valueInputOption: 'RAW',
           requestBody: {
             values: [[
-              new Date().toLocaleDateString(),       // A: Дата
-              transcription,                         // B: Задача
-              ctx.message.from.username || 'CEO',    // C: Источник
-              'new'                                   // D: Статус
+              new Date().toLocaleDateString(),
+              transcription,
+              ctx.message.from.username || 'CEO',
+              'new'
             ]]
           }
         });
@@ -99,15 +99,30 @@ bot.on('voice', async (ctx) => {
   });
 });
 
-// Обработка текстовых сообщений
+// Task detection
+function isPotentialTask(text) {
+  const keywords = ['надо', 'нужно', 'сделай', 'запланируй', 'создать', 'отправить', 'добавь', 'сформируй', 'встретиться', 'обсудить', 'напомни'];
+  return keywords.some(word => text.toLowerCase().includes(word));
+}
+
+// Text messages
 bot.on('text', async (ctx) => {
   const userMessage = ctx.message.text;
+  const chatId = ctx.chat.id;
 
-  // AI-ответ
   const aiResponse = await askOpenRouter(userMessage);
   ctx.reply(aiResponse);
 
-  // Добавление в таблицу
+  if (isPotentialTask(userMessage)) {
+    ctx.reply('📌 Сохранить это как задачу?', Markup.inlineKeyboard([
+      Markup.button.callback('✅ Да', `save_task:${userMessage}`),
+      Markup.button.callback('❌ Нет', 'cancel_task')
+    ]));
+  }
+});
+
+bot.action(/save_task:(.+)/, async (ctx) => {
+  const task = ctx.match[1];
   try {
     const client = await auth.getClient();
     const sheets = google.sheets({ version: 'v4', auth: client });
@@ -117,19 +132,66 @@ bot.on('text', async (ctx) => {
       valueInputOption: 'RAW',
       requestBody: {
         values: [[
-          new Date().toLocaleDateString(),           // A: Дата
-          userMessage,                               // B: Задача
-          ctx.message.from.username || 'CEO',        // C: Источник
-          'new'                                       // D: Статус
+          new Date().toLocaleDateString(),
+          task,
+          ctx.from.username || 'CEO',
+          'new'
         ]]
       }
     });
+    await ctx.editMessageText('✅ Задача сохранена.');
   } catch (err) {
     console.error("❌ Google Sheets error:", err.message);
+    await ctx.reply("❌ Ошибка при сохранении задачи.");
   }
 });
 
-// Запуск через Webhook (для Render)
+bot.action('cancel_task', async (ctx) => {
+  await ctx.editMessageText('❎ Отмена задачи.');
+});
+
+// Show tasks
+bot.command('show_tasks', async (ctx) => {
+  ctx.reply('Выберите статус задач:', Markup.inlineKeyboard([
+    [Markup.button.callback('📌 Новые', 'tasks:new')],
+    [Markup.button.callback('🔧 В работе', 'tasks:inprogress')],
+    [Markup.button.callback('✅ Готово', 'tasks:done')]
+  ]));
+});
+
+bot.action(/tasks:(.+)/, async (ctx) => {
+  const status = ctx.match[1];
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'CEO!A1:D1000'
+    });
+
+    const rows = response.data.values || [];
+    const filtered = rows.filter(row => row[3] && row[3].toLowerCase() === status);
+
+    if (filtered.length === 0) {
+      await ctx.reply('📭 Задач с таким статусом нет.');
+    } else {
+      const message = filtered.map(row => `📅 ${row[0]} — ${row[1]} (👤 ${row[2]})`).join('\n\n');
+      await ctx.reply(`📋 Задачи со статусом "${status}":\n\n${message}`);
+    }
+  } catch (err) {
+    console.error("❌ Google Sheets read error:", err.message);
+    await ctx.reply("❌ Не удалось получить задачи.");
+  }
+});
+
+// Ежедневный анализ рынка в 08:00 AM
+cron.schedule('0 8 * * *', async () => {
+  const prompt = `Проанализируй рынок ландшафтных услуг в районе GTA (Торонто, Канада). Используй ключевые слова: lawn care, landscaping, interlock, fences, spring cleanup. Выведи на русском языке краткий отчёт, с рекомендациями как улучшить бизнес.`;
+  const report = await askOpenRouter(prompt);
+  bot.telegram.sendMessage(process.env.TELEGRAM_OWNER_ID, `📊 Ежедневный отчёт:\n\n${report}`);
+});
+
+// Webhook
 bot.launch({
   webhook: {
     domain: process.env.RENDER_EXTERNAL_HOSTNAME,
