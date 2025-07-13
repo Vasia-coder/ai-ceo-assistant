@@ -57,6 +57,23 @@ async function askOpenRouter(message) {
     return "⚠️ Ошибка запроса к OpenRouter.";
   }
 }
+async function generateTasksFromHistory() {
+  const client = await auth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: client });
+
+  const history = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: 'CEO!A2:D1000'
+  });
+
+  const doneTasks = history.data.values?.filter(row => row[3]?.toLowerCase() === 'done') || [];
+  const doneText = doneTasks.map(row => `- ${row[1]}`).join('\n');
+
+  const prompt = `Проанализируй список завершённых задач:\n${doneText}\n\nНа их основе предложи 3 новых задачи на эту неделю, чтобы улучшить бизнес.`;
+  const aiReply = await askOpenRouter(prompt);
+
+  return aiReply;
+}
 
 function isPotentialTask(text) {
   const keywords = ['надо', 'нужно', 'сделай', 'запланируй', 'создать', 'отправить', 'добавь', 'сформируй', 'встретиться', 'обсудить', 'напомни'];
@@ -79,6 +96,67 @@ bot.command('about', async (ctx) => {
 });
 
 bot.command('strategy', async (ctx) => {
+  bot.command('update_strategy', async (ctx) => {
+  const prompt = '📥 Введите или надиктуйте новую цель для этой недели (она заменит текущую в таблице StrategyPlan).';
+  ctx.reply(prompt);
+  bot.once('text', async (ctx2) => {
+    const today = new Date();
+    const weekNumber = Math.ceil((((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    try {
+      const range = 'StrategyPlan!A2:E100';
+      const rows = (await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range
+      })).data.values;
+
+      const rowIndex = rows.findIndex(row => row[0]?.toLowerCase().includes(`w${weekNumber}`.toLowerCase()));
+
+      if (rowIndex === -1) {
+        return ctx2.reply('⚠️ Цель текущей недели не найдена. Добавьте её вручную.');
+      }
+
+      rows[rowIndex][2] = ctx2.message.text; // Обновляем колонку Goal (3-я колонка)
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `StrategyPlan!A${rowIndex + 2}:E${rowIndex + 2}`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: [rows[rowIndex]]
+        }
+      });
+
+      ctx2.reply('✅ Цель недели обновлена.');
+    } catch (err) {
+      console.error('Ошибка обновления цели:', err.message);
+      ctx2.reply('❌ Ошибка при обновлении цели.');
+    }
+  });
+});
+bot.command('company_status', async (ctx) => {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const history = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: 'CEO!A2:D1000'
+    });
+
+    const data = history.data.values || [];
+    const taskText = data.map(row => `- ${row[1]} [${row[3] || 'no status'}]`).join('\n');
+    const prompt = `Вот история задач компании Unique Landscaping 4U:\n${taskText}\n\nПроанализируй текущее состояние бизнеса. Что идёт хорошо? Что можно улучшить? Верни краткий отчёт.`;
+
+    const analysis = await askOpenRouter(prompt);
+    ctx.reply(`📈 Состояние компании:\n\n${analysis}`);
+  } catch (err) {
+    console.error("Ошибка company_status:", err.message);
+    ctx.reply('❌ Не удалось получить данные компании.');
+  }
+});
+
   try {
     const today = new Date();
     const weekNumber = Math.ceil((((today - new Date(today.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
@@ -98,6 +176,11 @@ bot.command('strategy', async (ctx) => {
     console.error("Ошибка получения StrategyPlan:", err.message);
     await ctx.reply("⚠️ Не удалось загрузить стратегию недели.");
   }
+});
+
+bot.command('suggest', async (ctx) => {
+  const suggestions = await generateTasksFromHistory();
+  ctx.reply(`🤖 Предложения на основе истории:\n\n${suggestions}`);
 });
 
 bot.on('text', async (ctx) => {
@@ -203,3 +286,7 @@ bot.launch({
 });
 
 console.log("✅ Полный AI CEO бот запущен и включает стратегию, голос, задачи и OpenRouter контекст");
+cron.schedule('0 8 * * 1', async () => {
+  const suggestions = await generateTasksFromHistory();
+  await bot.telegram.sendMessage(process.env.TELEGRAM_OWNER_ID, `📌 ИИ-предложения на неделю:\n\n${suggestions}`);
+});
